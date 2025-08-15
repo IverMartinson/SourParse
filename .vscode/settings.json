@@ -1,0 +1,18 @@
+{
+    "files.associations": {
+        "functions.h": "c",
+        "sdl.h": "c",
+        "math.h": "c",
+        "type_traits": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c",
+        "compare": "c",
+        "rasteriver.h": "c",
+        "stdio.h": "c",
+        "sourparse.h": "c"
+    },
+    "OpenCL.explorer.localizedProperties": false,
+    "C_Cpp.default.compilerPath": "/bin/gcc"
+}

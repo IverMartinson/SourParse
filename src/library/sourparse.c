@@ -1,0 +1,411 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include "../headers/sourparse.h"
+
+void skip_8(SP_font *font){
+    font->current_byte++;
+}
+
+void skip_16(SP_font *font){
+    font->current_byte += 2;
+}
+
+void skip_32(SP_font *font){
+    font->current_byte += 4;
+}
+
+uint8_t get_u8(SP_font *font){
+    return font->buffer[font->current_byte++];
+}
+
+// file is in big endian
+// swap bytes
+// 0x1234 -> 0x3412
+uint16_t get_u16(SP_font *font){
+    return (uint16_t)(font->buffer[font->current_byte++] << 8 | font->buffer[font->current_byte++]);
+}
+
+uint32_t get_u32(SP_font *font){
+    return (uint32_t)(font->buffer[font->current_byte++] << 24 | font->buffer[font->current_byte++] << 16 | font->buffer[font->current_byte++] << 8 | font->buffer[font->current_byte++]);
+}
+
+int8_t get_i8(SP_font *font){
+    return font->buffer[font->current_byte++];
+}
+
+int16_t get_i16(SP_font *font){
+    return (int16_t)(font->buffer[font->current_byte++] << 8 | font->buffer[font->current_byte++]);
+}
+
+int32_t get_i32(SP_font *font){
+    return (int32_t)(font->buffer[font->current_byte++] << 24 | font->buffer[font->current_byte++] << 16 | font->buffer[font->current_byte++] << 8 | font->buffer[font->current_byte++]);
+}
+
+void get_tag(SP_font *font, char *tag){
+    tag[0] = get_u8(font);
+    tag[1] = get_u8(font);
+    tag[2] = get_u8(font);
+    tag[3] = get_u8(font);
+    tag[4] = '\0';
+}
+
+float get_F2DOT14(SP_font *font) {
+    int16_t signedVal = (int16_t)(font->buffer[font->current_byte++] << 8 | font->buffer[font->current_byte++]);
+    return signedVal / 16384.0f;
+}
+
+int* read_glyph_coords(SP_font *font, uint8_t *flags, int number_of_points, int is_this_function_reading_the_x_coordinates_hmmmm_well_if_this_vaSPable_is_one_then_it_means_we_are_okay_yayyyyyy){
+    int byte_size_bit = is_this_function_reading_the_x_coordinates_hmmmm_well_if_this_vaSPable_is_one_then_it_means_we_are_okay_yayyyyyy ? 1 : 2;
+    int sign_slash_repeat_bit = is_this_function_reading_the_x_coordinates_hmmmm_well_if_this_vaSPable_is_one_then_it_means_we_are_okay_yayyyyyy ? 4 : 5;
+    int *coords = malloc(sizeof(int) * number_of_points);
+
+    for (int i = 0; i < number_of_points; ++i){
+        uint8_t flag = flags[i];
+        int on_curve = flag & 1;
+
+        int delta = 0;
+
+        // delta is 8 bits
+        if (flag >> byte_size_bit & 1){
+            // delta is the current coord.
+            // it's called delta because the coords are differences in position, not positions
+            // also this part            ------------------------------------------    sets the sign of the delta
+            delta = (int)get_u8(font) * (flag >> sign_slash_repeat_bit & 1 ? 1 : -1);
+        } // delta is 16 bits 
+        else {
+            if (!(flag >> sign_slash_repeat_bit & 1)){
+                delta = (int)get_i16(font);
+            }
+        }
+
+        if (i == 0){
+            coords[i] = delta;
+        }else {
+            coords[i] = coords[i - 1] + delta;
+        }
+    }
+
+    return coords;
+}
+
+// composite flags
+#define ARG_1_AND_2_ARE_WORDS 0x0001
+#define ARGS_ARE_XY_VALUES 0x0002
+#define WE_HAVE_A_SCALE 0x0008
+#define MORE_COMPONENTS 0x0020
+#define WE_HAVE_AN_X_AND_Y_SCALE 0x0040
+#define WE_HAVE_A_TWO_BY_TWO 0x0080
+#define WE_HAVE_INSTRUCTIONS 0x0100
+
+// simple flags
+#define REPEAT_FLAG 0x08
+
+void read_glyph(SP_font *font, int current_glyph){ 
+    int glyph_start = font->glyph_offsets[current_glyph];
+    int glyph_end   = font->glyph_offsets[current_glyph + 1];
+    
+    font->current_byte = glyph_start;
+
+    SP_glyph *glyph = &font->glyphs[current_glyph];
+
+    glyph->number_of_contours = (int)get_i16(font);
+
+    // do i need these? i dont think so
+    int16_t x_min = get_i16(font);
+    int16_t y_min = get_i16(font);
+    int16_t x_max = get_i16(font);
+    int16_t y_max = get_i16(font);
+
+    // glyph is composite :(
+    if (glyph->number_of_contours < 0){     
+        uint16_t flags;
+        
+        int reading_glyphs = 1;
+        while (reading_glyphs) {
+            flags = get_u16(font);
+            uint16_t glyph_index = get_u16(font);
+
+            int16_t arg1, arg2;
+
+            int x_scale, y_scale, scale01, scale10;
+            x_scale = y_scale = scale01 = scale10 = 1;
+
+            if (flags & ARG_1_AND_2_ARE_WORDS) { // args are words
+                if (flags & ARGS_ARE_XY_VALUES) { // args are signed offsets
+                    arg1 = get_i16(font);
+                    arg2 = get_i16(font);
+                } else { // ------------------------ args are point indecies
+                    arg1 = get_u16(font);
+                    arg2 = get_u16(font);
+                }
+            } else { // args are bytes
+                if (flags & ARGS_ARE_XY_VALUES) {
+                    arg1 = get_i8(font);
+                    arg2 = get_i8(font);
+                } else {
+                    arg1 = get_u8(font);
+                    arg2 = get_u8(font);
+                }
+            }
+
+            if (flags & WE_HAVE_A_SCALE) { // we have a scale
+                x_scale = y_scale = (int)get_F2DOT14(font);
+            } else if (flags & WE_HAVE_AN_X_AND_Y_SCALE) { // seperate x and y scales
+                x_scale = (int)get_F2DOT14(font);
+                y_scale = (int)get_F2DOT14(font);
+            } else if (flags & WE_HAVE_A_TWO_BY_TWO) { // 2x2 transform
+                x_scale = (int)get_F2DOT14(font);
+                scale01 = (int)get_F2DOT14(font);
+                scale10 = (int)get_F2DOT14(font);
+                y_scale = (int)get_F2DOT14(font);
+            }
+
+            if (!(flags & MORE_COMPONENTS)) { // this is the last glyph, stop reading (please&thankyou)
+                reading_glyphs = 0;
+            }
+        }
+
+        if (flags & WE_HAVE_INSTRUCTIONS){ // we have instructions
+            uint16_t number_of_instructions = get_u16(font);
+
+            for (int i = 0; i < number_of_instructions; ++i) skip_8(font); // we dont care about instructions
+        }
+
+        font->current_byte = glyph_end;
+    
+        return;
+    }
+
+    glyph->contour_end_indicies = malloc(sizeof(int) * glyph->number_of_contours);
+
+    for (int i = 0; i < (int)glyph->number_of_contours; ++i){
+        glyph->contour_end_indicies[i] = (int)get_u16(font);
+    }
+    
+    // skip instructions
+    uint16_t instruction_length = get_u16(font);
+    
+    if (instruction_length > 0){
+        for (int i = 0; i < instruction_length; ++i){
+            skip_8(font);
+        }
+    }
+
+    if (glyph->number_of_contours == 0) return; // we still want to skip the instructions so that we dont get offset
+
+    // add one because these are 0-indexed indicies.
+    // the last one is the highest index
+    glyph->number_of_points = glyph->contour_end_indicies[glyph->number_of_contours - 1] + 1;
+
+    glyph->flags = malloc(sizeof(uint8_t) * (glyph->number_of_points));
+
+    for (int i = 0; i < glyph->number_of_points; ++i){ // flags
+        glyph->flags[i] = get_u8(font); // flag
+        
+        if (glyph->flags[i] & REPEAT_FLAG){ // is the flag a repeat flag?
+            uint8_t flag = glyph->flags[i];
+        
+            int times_to_repeat = (int)get_u8(font);
+
+            for (int j = 0; j < times_to_repeat; ++j){ // yes, get the next byte (number of repeats) and repeat this flag however many times
+                glyph->flags[++i] = flag;
+            }
+        }
+    }
+
+    glyph->x_coords = read_glyph_coords(font, glyph->flags, glyph->number_of_points, 1);
+    glyph->y_coords = read_glyph_coords(font, glyph->flags, glyph->number_of_points, 0);
+
+    font->current_byte = glyph_end;
+}
+
+SP_font SP_load_font(char *filename){
+    SP_font font = {0};
+
+    FILE *fp = fopen(filename, "rb");
+
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    rewind(fp);
+
+    font.buffer = malloc(size);
+
+    fread(font.buffer, 1, size, fp);
+    fclose(fp);
+
+    skip_32(&font);
+
+    uint16_t number_of_tables = get_u16(&font);
+
+    skip_32(&font);
+    skip_16(&font);
+
+    int glyph_offset = 0;
+    int maxp_offset = 0;
+    int cmap_offset = 0;
+    int loca_offset = 0;
+    int head_offset = 0;
+
+    for (int i = 0; i < (int)number_of_tables; ++i){
+        char tag[5]; get_tag(&font, tag);
+        uint32_t checksum = get_u32(&font);
+        uint32_t offset = get_u32(&font);
+        uint32_t length = get_u32(&font);
+    
+        if (strcmp(tag, "glyf") == 0){
+            glyph_offset = (int)offset;
+        }
+        
+        else if (strcmp(tag, "maxp") == 0){
+            maxp_offset = (int)offset;
+        }
+        
+        else if (strcmp(tag, "cmap") == 0){
+            cmap_offset = (int)offset;
+        }
+
+        else if (strcmp(tag, "loca") == 0){
+            loca_offset = (int)offset;
+        }
+
+        else if (strcmp(tag, "head") == 0){
+            head_offset = (int)offset;
+        }
+    }
+
+    // head table
+    skip_32(&font); // skip nonsense
+    skip_32(&font);
+    skip_32(&font);
+    skip_32(&font);
+    skip_16(&font);
+
+    font.units_per_em = get_u16(&font);
+
+    skip_32(&font); // skip gibberjabber
+    skip_32(&font);
+    skip_32(&font);
+    skip_32(&font);
+    skip_32(&font);
+    skip_16(&font);
+
+    font.index_to_loca_format = get_i16(&font);
+
+    // get number of glyphs
+    font.current_byte = maxp_offset;
+
+    skip_32(&font);
+
+    font.number_of_glyphs = (int)get_u16(&font);
+
+    // glyph locations
+    font.current_byte = loca_offset;
+
+    font.glyph_offsets = malloc(sizeof(int) * (font.number_of_glyphs + 1));
+
+    for (int i = 0; i <= font.number_of_glyphs; ++i){
+        if (font.index_to_loca_format){ // long offsets (32 bit)
+            font.glyph_offsets[i] = (int)get_u32(&font) + glyph_offset;
+        }else { // short offsets (16 bit)
+            font.glyph_offsets[i] = (int)get_u16(&font) * 2 + glyph_offset;
+        }
+    }
+
+    // character map
+    font.current_byte = cmap_offset;
+
+    uint16_t version = get_u16(&font);
+
+    uint16_t number_of_cmap_tables = get_u16(&font);
+
+    int last_byte_offset;
+
+    for (int i = 0; i < number_of_cmap_tables; ++i){
+        uint16_t platform_id = get_u16(&font);
+        uint16_t encoding_id = get_u16(&font);
+        uint32_t subtable_offset = get_u32(&font);
+
+        last_byte_offset = font.current_byte;
+        font.current_byte = cmap_offset + subtable_offset;
+
+        if (platform_id == 3 && encoding_id == 1){
+            // i'll add this when i have to use a font that needs it 
+        } else if (platform_id == 0 && encoding_id == 3){
+            // assuming only format 4 for now because im lazy >w<
+
+            uint16_t format = get_u16(&font);
+            uint16_t length = get_u16(&font);
+            uint16_t language = get_u16(&font);
+            uint16_t seg_count_x2 = get_u16(&font); uint16_t seg_count = seg_count_x2 / 2;
+            skip_16(&font);
+            skip_16(&font);
+            skip_16(&font);
+        
+            uint16_t *end_codes = malloc(sizeof(uint16_t) * seg_count);
+            for (int i = 0; i < seg_count; ++i) end_codes[i] = get_u16(&font);
+            
+            skip_16(&font);
+            
+            uint16_t *start_codes = malloc(sizeof(uint16_t) * seg_count);
+            for (int i = 0; i < seg_count; ++i) start_codes[i] = get_u16(&font);
+            
+            int16_t *id_deltas = malloc(sizeof(uint16_t) * seg_count);
+            for (int i = 0; i < seg_count; ++i) id_deltas[i] = get_u16(&font);
+            
+            int id_range_offsets_size = length - (font.current_byte - (cmap_offset + subtable_offset));
+            uint16_t *id_range_offsets = malloc(sizeof(uint16_t) * id_range_offsets_size);
+            for (int i = 0; i < id_range_offsets_size; ++i) id_range_offsets[i] = get_u16(&font);
+            
+            int highest_code = end_codes[seg_count - 1];
+
+            font.unicode_to_glyph_indicies = malloc(sizeof(uint16_t) * highest_code);
+
+            // loop over segments.
+            // a segment is a range of unicode characters that are all mapped with the same formula.
+            // i dont understand this at all
+            for (int i = 0; i < (int)seg_count; ++i) {
+                int start_code = start_codes[i];
+                int end_code = end_codes[i];
+                
+                uint16_t glyph_index = 0;
+
+                for (int j = start_code; j < end_code; j++){
+                    // if range offset is zero, the id comes from glyph id array
+                    if (id_range_offsets[i] == 0){
+                        glyph_index = (j + id_deltas[i]) % 65536;
+                    } else {
+                        glyph_index = *(id_range_offsets[i]/2 + (j - start_codes[i]) + &id_range_offsets[i]);
+                        glyph_index = (glyph_index + id_deltas[i]) % 65536;
+                    }
+                
+                    font.unicode_to_glyph_indicies[j] = glyph_index;
+                }
+            }
+
+            break; // stop because we only need one
+        } else { // excuse
+            // printf("cant read this becuase dont want to");
+        }
+
+        font.current_byte = last_byte_offset;
+    }
+
+    // read glyphs
+    font.current_byte = glyph_offset;
+
+    font.glyphs = malloc(sizeof(SP_glyph) * font.number_of_glyphs);
+
+    for (int i = 0; i < font.number_of_glyphs; ++i){
+        read_glyph(&font, i);
+    }
+
+    return font;
+}
+
+void SP_free_font(SP_font *font){
+    free(font->buffer);
+    free(font->glyph_offsets);
+    free(font->glyphs);
+    free(font->unicode_to_glyph_indicies);
+}
