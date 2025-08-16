@@ -26,7 +26,7 @@ typedef struct {
     int16_t index_to_loca_format;
 } SP_font;
 
-SP_font SP_load_font(char *filename);
+SP_font* SP_load_font(char *filename);
 void SP_free_font(SP_font* font);
 
 #endif
