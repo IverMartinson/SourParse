@@ -112,56 +112,74 @@ void read_glyph(SP_font *font, int current_glyph){
     glyph->number_of_contours = (int)get_i16(font);
 
     // do i need these? i dont think so
-    int16_t x_min = get_i16(font);
-    int16_t y_min = get_i16(font);
-    int16_t x_max = get_i16(font);
-    int16_t y_max = get_i16(font);
-
-    // glyph is composite :(
-    if (glyph->number_of_contours < 0){     
-        uint16_t flags;
+    glyph->x_min = get_i16(font);
+    glyph->y_min = get_i16(font);
+    glyph->x_max = get_i16(font);
+    glyph->y_max = get_i16(font);
         
+    // glyph is composite :(
+    if (glyph->number_of_contours < 0){    
+        glyph->is_composite = 1;
+        
+        uint16_t flags;
+
+        glyph->number_of_components = 0;
+        
+        int current_allocated_components = 5;
+
+        // assume the glyph has 5 children components
+        glyph->components = malloc(sizeof(SP_component) * current_allocated_components);
+
         int reading_glyphs = 1;
         while (reading_glyphs) {
+            glyph->number_of_components++;
+            
+            // we use number of components as the current component because we're iteratiing it anyways.
+            // A better name would be more fitting, but it wouldn't make sense to use another var
+            if (glyph->number_of_components >= current_allocated_components){
+                current_allocated_components += 5;
+
+                glyph->components = realloc(glyph->components, current_allocated_components);
+            }
+
+            SP_component *c_glyph = &glyph->components[glyph->number_of_components];
+
             flags = get_u16(font);
             uint16_t glyph_index = get_u16(font);
 
-            int16_t arg1, arg2;
-
-            int x_scale, y_scale, scale01, scale10;
-            x_scale = y_scale = scale01 = scale10 = 1;
+            c_glyph->scale_x = c_glyph->scale_y = c_glyph->scale01 = c_glyph->scale10 = 1;
 
             if (flags & ARG_1_AND_2_ARE_WORDS) { // args are words
                 if (flags & ARGS_ARE_XY_VALUES) { // args are signed offsets
-                    arg1 = get_i16(font);
-                    arg2 = get_i16(font);
+                    c_glyph->arg1 = get_i16(font);
+                    c_glyph->arg2 = get_i16(font);
                 } else { // ------------------------ args are point indecies
-                    arg1 = get_u16(font);
-                    arg2 = get_u16(font);
+                    c_glyph->arg1 = get_u16(font);
+                    c_glyph->arg2 = get_u16(font);
                 }
             } else { // args are bytes
                 if (flags & ARGS_ARE_XY_VALUES) {
-                    arg1 = get_i8(font);
-                    arg2 = get_i8(font);
+                    c_glyph->arg1 = get_i8(font);
+                    c_glyph->arg2 = get_i8(font);
                 } else {
-                    arg1 = get_u8(font);
-                    arg2 = get_u8(font);
+                    c_glyph->arg1 = get_u8(font);
+                    c_glyph->arg2 = get_u8(font);
                 }
             }
 
             if (flags & WE_HAVE_A_SCALE) { // we have a scale
-                x_scale = y_scale = (int)get_F2DOT14(font);
+                c_glyph->scale_x = c_glyph->scale_y = (int)get_F2DOT14(font);
             } else if (flags & WE_HAVE_AN_X_AND_Y_SCALE) { // seperate x and y scales
-                x_scale = (int)get_F2DOT14(font);
-                y_scale = (int)get_F2DOT14(font);
+                c_glyph->scale_x = (int)get_F2DOT14(font);
+                c_glyph->scale_y = (int)get_F2DOT14(font);
             } else if (flags & WE_HAVE_A_TWO_BY_TWO) { // 2x2 transform
-                x_scale = (int)get_F2DOT14(font);
-                scale01 = (int)get_F2DOT14(font);
-                scale10 = (int)get_F2DOT14(font);
-                y_scale = (int)get_F2DOT14(font);
+                c_glyph->scale_x = (int)get_F2DOT14(font);
+                c_glyph->scale01 = (int)get_F2DOT14(font);
+                c_glyph->scale10 = (int)get_F2DOT14(font);
+                c_glyph->scale_y = (int)get_F2DOT14(font);
             }
 
-            if (!(flags & MORE_COMPONENTS)) { // this is the last glyph, stop reading (please&thankyou)
+            if (!(flags & MORE_COMPONENTS)) { // this is the last c_glyph, stop reading (please&thankyou)
                 reading_glyphs = 0;
             }
         }
@@ -176,6 +194,8 @@ void read_glyph(SP_font *font, int current_glyph){
     
         return;
     }
+
+    glyph->is_composite = 0;
 
     glyph->contour_end_indicies = malloc(sizeof(int) * glyph->number_of_contours);
 
@@ -406,6 +426,18 @@ SP_font SP_load_font(char *filename){
 void SP_free_font(SP_font *font){
     free(font->buffer);
     free(font->glyph_offsets);
+    
+    for (int i = 0; i < font->number_of_glyphs; ++i){
+        if (font->glyphs[i].is_composite){
+            free(font->glyphs[i].contour_end_indicies);
+            free(font->glyphs[i].flags);
+            free(font->glyphs[i].x_coords);
+            free(font->glyphs[i].y_coords);
+        } else {
+            free(font->glyphs[i].components);
+        }    
+    }
+    
     free(font->glyphs);
     free(font->unicode_to_glyph_indicies);
 }

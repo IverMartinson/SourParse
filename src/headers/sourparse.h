@@ -4,8 +4,18 @@
 #include "stdint.h"
 
 typedef struct {
-    int *x_coords, *y_coords, *contour_end_indicies, number_of_points, number_of_contours;
+    int scale_x, scale01, scale10, scale_y;
+    int glyph_index;
+    int16_t arg1, arg2;
+} SP_component;
+
+typedef struct {
+    int *x_coords, *y_coords, *contour_end_indicies; 
+    int number_of_points, number_of_contours, number_of_components;
     uint8_t *flags;
+    int16_t x_min, y_min, x_max, y_max;
+    SP_component *components;
+    int is_composite;
 } SP_glyph;
 
 typedef struct {
