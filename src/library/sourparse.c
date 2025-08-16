@@ -295,19 +295,26 @@ SP_font SP_load_font(char *filename){
     }
 
     // head table
-    skip_32(&font); // skip nonsense
-    skip_32(&font);
-    skip_32(&font);
-    skip_32(&font);
-    skip_16(&font);
+    font.current_byte = head_offset;
+
+    // skip nonsense
+    skip_32(&font); // version
+    skip_32(&font); // font revision
+    skip_32(&font); // checksum adjustment
+    skip_32(&font); // magic number
+    skip_16(&font); // flags
 
     font.units_per_em = get_u16(&font);
-
-    skip_32(&font); // skip gibberjabber
+    
+    // skip gibberjabber
+    skip_32(&font); // 64 bit longdatetime
     skip_32(&font);
-    skip_32(&font);
-    skip_32(&font);
-    skip_32(&font);
+    skip_32(&font); // 64 bit longdatetime
+    skip_32(&font); 
+    skip_32(&font); // mins
+    skip_32(&font); // maxs
+    skip_16(&font);
+    skip_16(&font);
     skip_16(&font);
 
     font.index_to_loca_format = get_i16(&font);
@@ -403,6 +410,11 @@ SP_font SP_load_font(char *filename){
                 }
             }
 
+            free(end_codes);
+            free(start_codes);
+            free(id_deltas);
+            free(id_range_offsets);
+
             break; // stop because we only need one
         } else { // excuse
             // printf("cant read this becuase dont want to");
@@ -428,7 +440,7 @@ void SP_free_font(SP_font *font){
     free(font->glyph_offsets);
     
     for (int i = 0; i < font->number_of_glyphs; ++i){
-        if (font->glyphs[i].is_composite){
+        if (!font->glyphs[i].is_composite){
             free(font->glyphs[i].contour_end_indicies);
             free(font->glyphs[i].flags);
             free(font->glyphs[i].x_coords);
