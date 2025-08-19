@@ -511,6 +511,8 @@ void SP_free_font(SP_font *font){
     
     free(font->glyphs);
     free(font->unicode_to_glyph_indicies);
+    free(font->left_side_bearings);
+    free(font->h_metrics);
 
     free(font);
 }
