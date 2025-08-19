@@ -106,9 +106,15 @@ void read_glyph(SP_font *font, int current_glyph){
     int glyph_end   = font->glyph_offsets[current_glyph + 1];
     
     font->current_byte = glyph_start;
-
+    
     SP_glyph *glyph = &font->glyphs[current_glyph];
-
+    
+    if (glyph_start == glyph_end){
+        glyph->number_of_contours = 0;
+        
+        return;
+    }
+    
     glyph->number_of_contours = (int)get_i16(font);
 
     // do i need these? i dont think so
@@ -116,7 +122,7 @@ void read_glyph(SP_font *font, int current_glyph){
     glyph->y_min = get_i16(font);
     glyph->x_max = get_i16(font);
     glyph->y_max = get_i16(font);
-        
+
     // glyph is composite :(
     if (glyph->number_of_contours < 0){    
         glyph->is_composite = 1;
@@ -212,7 +218,13 @@ void read_glyph(SP_font *font, int current_glyph){
         }
     }
 
-    if (glyph->number_of_contours == 0) return; // we still want to skip the instructions so that we dont get offset
+    // we still want to skip the instructions so that we dont get offset.
+    // also set point count to 0
+    if (glyph->number_of_contours == 0){
+        glyph->number_of_points = 0;
+        
+        return; 
+    } 
 
     // add one because these are 0-indexed indicies.
     // the last one is the highest index
@@ -386,26 +398,26 @@ SP_font* SP_load_font(char *filename){
             
             int highest_code = end_codes[seg_count - 1];
 
-            font->unicode_to_glyph_indicies = malloc(sizeof(uint16_t) * highest_code);
+            font->unicode_to_glyph_indicies = malloc(sizeof(uint16_t) * highest_code + 10);
 
             // loop over segments.
             // a segment is a range of unicode characters that are all mapped with the same formula.
             // i dont understand this at all
-            for (int i = 0; i < (int)seg_count; ++i) {
-                int start_code = start_codes[i];
-                int end_code = end_codes[i];
-                
-                uint16_t glyph_index = 0;
-
-                for (int j = start_code; j < end_code; j++){
-                    // if range offset is zero, the id comes from glyph id array
-                    if (id_range_offsets[i] == 0){
-                        glyph_index = (j + id_deltas[i]) % 65536;
+            for (int i = 0; i < seg_count; i++) {
+                for (int j = start_codes[i]; j <= end_codes[i]; j++) {
+                    uint16_t glyph_index = 0;
+                    if (id_range_offsets[i] == 0) {
+                        glyph_index = (j + id_deltas[i]) & 0xFFFF;
                     } else {
-                        glyph_index = *(id_range_offsets[i]/2 + (j - start_codes[i]) + &id_range_offsets[i]);
-                        glyph_index = (glyph_index + id_deltas[i]) % 65536;
+                        // Compute address relative to this idRangeOffset word
+                        int offset = id_range_offsets[i]/2 + (j - start_codes[i]);
+                        int16_t *glyphIdArray = (int16_t *)(&id_range_offsets[i]);
+                        glyph_index = glyphIdArray[offset];
+
+                        if (glyph_index != 0) {
+                            glyph_index = (glyph_index + id_deltas[i]) & 0xFFFF;
+                        }
                     }
-                
                     font->unicode_to_glyph_indicies[j] = glyph_index;
                 }
             }

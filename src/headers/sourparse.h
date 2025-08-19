@@ -12,6 +12,7 @@ typedef struct {
 typedef struct {
     int *x_coords, *y_coords, *contour_end_indicies; 
     int number_of_points, number_of_contours, number_of_components;
+    int advance_width;
     uint8_t *flags;
     int16_t x_min, y_min, x_max, y_max;
     SP_component *components;
