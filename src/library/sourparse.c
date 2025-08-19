@@ -470,15 +470,13 @@ SP_font* SP_load_font(char *filename){
     font->current_byte = hmtx_offset;
 
     font->h_metrics = malloc(sizeof(SP_long_hor_metric) * font->number_of_glyphs); // advance width and left side bearings for each glyph
-    font->left_side_bearings = malloc(sizeof(int16_t) * font->number_of_glyphs); // left side bearings for glyphs with IDs >= number_of_h_metrics
+    // font->left_side_bearings = malloc(sizeof(int16_t) * font->number_of_glyphs); // left side bearings for glyphs with IDs >= number_of_h_metrics
     // ^^^^^^^^^^^^^^^^^^^ this is useful for monospaced fonts where most everything has the same left side bearing. it saves on memory
     // ^^^^^^^^^^^^^^^^^^^ when number_of_h_metrics is < number of glyphs, the last advance width applies to all
     // ^^^^^^^^^^^^^^^^^^^ to make this easier on the user -- and because memory really isn't a problem anymore -- I'll only use h_metrics and make it the size of number of glyphs
 
-    int number_of_glyphs_that_arent_in_h_metrics = font->number_of_glyphs - font->hhea_table.number_of_h_metrics;
-
     for (int i = 0; i < font->number_of_glyphs; ++i){
-        if (number_of_glyphs_that_arent_in_h_metrics == 0) font->h_metrics[i] = (SP_long_hor_metric){get_u16(font), get_i16(font)}; 
+        if (i < font->hhea_table.number_of_h_metrics) font->h_metrics[i] = (SP_long_hor_metric){get_u16(font), get_i16(font)}; 
         else font->h_metrics[i] = (SP_long_hor_metric){font->h_metrics[font->hhea_table.number_of_h_metrics - 1].advance_width, get_i16(font)}; 
     }
 
