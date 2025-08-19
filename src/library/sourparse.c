@@ -278,6 +278,8 @@ SP_font* SP_load_font(char *filename){
     int cmap_offset = 0;
     int loca_offset = 0;
     int head_offset = 0;
+    int hhea_offset = 0;
+    int hmtx_offset = 0;
 
     for (int i = 0; i < (int)number_of_tables; ++i){
         char tag[5]; get_tag(font, tag);
@@ -303,6 +305,14 @@ SP_font* SP_load_font(char *filename){
 
         else if (strcmp(tag, "head") == 0){
             head_offset = (int)offset;
+        }
+
+        else if (strcmp(tag, "hhea") == 0){
+            hhea_offset = (int)offset;
+        }
+
+        else if (strcmp(tag, "hmtx") == 0){
+            hmtx_offset = (int)offset;
         }
     }
 
@@ -433,6 +443,43 @@ SP_font* SP_load_font(char *filename){
         }
 
         font->current_byte = last_byte_offset;
+    }
+
+    // hhea table
+    font->current_byte = hhea_offset;
+    
+    skip_32(font); // skip version
+
+    font->hhea_table.ascender = get_i16(font); // typographic ascent
+    font->hhea_table.descender = get_i16(font); // typographic descent
+    font->hhea_table.line_gap = get_i16(font); // typographic line gap
+    font->hhea_table.advance_max_width = get_u16(font); // max advance width for entry in hmtx table
+    font->hhea_table.min_left_side_bearing = get_i16(font); // "Minimum left sidebearing value in 'hmtx' table for glyphs with contours (empty glyphs should be ignored)."
+    font->hhea_table.min_right_side_bearing = get_i16(font); // "Minimum right sidebearing value; calculated as min(aw - (lsb + xMax - xMin)) for glyphs with contours (empty glyphs should be ignored)."
+    font->hhea_table.x_max_extent = get_i16(font); // "Max(lsb + (xMax - xMin))"
+    font->hhea_table.carat_slope_rise = get_i16(font); // used to calculate the slope of the cursor (1 for vertical)
+    font->hhea_table.carat_slope_run = get_i16(font); // 0 for vertical
+    font->hhea_table.carat_offset = get_i16(font); // "The amount by which a slanted highlight on a glyph needs to be shifted to produce the best appearance. Set to 0 for non-slanted fonts"
+    //                                       ^^^^too tired to make this simpler
+    skip_32(font); // skip reserved
+    skip_32(font); // (why is there reserved in the first place? for extra stuff later on? just add it to the end?)
+    font->hhea_table.metric_data_format = get_i16(font); // "0 for current format" (?)
+    font->hhea_table.number_of_h_metrics = get_u16(font); // h_metric entry count in hmtx table
+
+    // hmtx table
+    font->current_byte = hmtx_offset;
+
+    font->h_metrics = malloc(sizeof(SP_long_hor_metric) * font->number_of_glyphs); // advance width and left side bearings for each glyph
+    font->left_side_bearings = malloc(sizeof(int16_t) * font->number_of_glyphs); // left side bearings for glyphs with IDs >= number_of_h_metrics
+    // ^^^^^^^^^^^^^^^^^^^ this is useful for monospaced fonts where most everything has the same left side bearing. it saves on memory
+    // ^^^^^^^^^^^^^^^^^^^ when number_of_h_metrics is < number of glyphs, the last advance width applies to all
+    // ^^^^^^^^^^^^^^^^^^^ to make this easier on the user -- and because memory really isn't a problem anymore -- I'll only use h_metrics and make it the size of number of glyphs
+
+    int number_of_glyphs_that_arent_in_h_metrics = font->number_of_glyphs - font->hhea_table.number_of_h_metrics;
+
+    for (int i = 0; i < font->number_of_glyphs; ++i){
+        if (number_of_glyphs_that_arent_in_h_metrics == 0) font->h_metrics[i] = (SP_long_hor_metric){get_u16(font), get_i16(font)}; 
+        else font->h_metrics[i] = (SP_long_hor_metric){font->h_metrics[font->hhea_table.number_of_h_metrics - 1].advance_width, get_i16(font)}; 
     }
 
     // read glyphs

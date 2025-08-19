@@ -10,3 +10,4 @@ World's Best TTF Parser, 2025
 - [ ] add support for other formats
 - [ ] add complete TTF support (all the platforms and encodings. Well not the deprecated/obscure ones probably)
 - [x] read glyph position data (kerning, width to move, etc)
+- [ ] add composite glyph transforms besides position

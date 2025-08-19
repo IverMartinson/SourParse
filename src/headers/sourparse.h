@@ -4,6 +4,26 @@
 #include "stdint.h"
 
 typedef struct {
+    int16_t ascender;
+    int16_t descender;
+    int16_t line_gap;
+    uint16_t advance_max_width;
+    int16_t min_left_side_bearing;
+    int16_t min_right_side_bearing;
+    int16_t x_max_extent;
+    int16_t carat_slope_rise;
+    int16_t carat_slope_run;
+    int16_t carat_offset;
+    int16_t metric_data_format;
+    uint16_t number_of_h_metrics;
+} SP_hhea_table;
+
+typedef struct {
+    uint16_t advance_width;
+    int16_t left_side_bearing;
+} SP_long_hor_metric;
+
+typedef struct {
     int scale_x, scale01, scale10, scale_y;
     int glyph_index;
     int16_t arg1, arg2;
@@ -25,6 +45,9 @@ typedef struct {
     uint8_t *buffer;
     SP_glyph *glyphs;
     int16_t index_to_loca_format;
+    SP_long_hor_metric *h_metrics;
+    SP_hhea_table hhea_table;
+    int16_t *left_side_bearings;
 } SP_font;
 
 SP_font* SP_load_font(char *filename);
