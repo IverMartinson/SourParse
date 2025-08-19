@@ -151,7 +151,7 @@ void read_glyph(SP_font *font, int current_glyph){
             SP_component *c_glyph = &glyph->components[glyph->number_of_components];
 
             flags = get_u16(font);
-            uint16_t glyph_index = get_u16(font);
+            c_glyph->glyph_index = get_u16(font);
 
             c_glyph->scale_x = c_glyph->scale_y = c_glyph->scale01 = c_glyph->scale10 = 1;
 
