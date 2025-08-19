@@ -41,7 +41,8 @@ typedef struct {
 
 typedef struct {
     int current_byte, number_of_glyphs, *glyph_offsets; 
-    uint16_t *unicode_to_glyph_indicies, units_per_em;
+    uint16_t *unicode_to_glyph_indicies;
+    float units_per_em;
     uint8_t *buffer;
     SP_glyph *glyphs;
     int16_t index_to_loca_format;

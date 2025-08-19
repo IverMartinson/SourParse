@@ -326,7 +326,7 @@ SP_font* SP_load_font(char *filename){
     skip_32(font); // magic number
     skip_16(font); // flags
 
-    font->units_per_em = get_u16(font);
+    font->units_per_em = (float)get_u16(font);
     
     // skip gibberjabber
     skip_32(font); // 64 bit longdatetime
