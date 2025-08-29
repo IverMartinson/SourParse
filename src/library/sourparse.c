@@ -252,6 +252,12 @@ void read_glyph(SP_font *font, int current_glyph){
     font->current_byte = glyph_end;
 }
 
+#define KERN_HORIZONTAL   0x0001  // bit 0
+#define KERN_MINIMUM      0x0002  // bit 1
+#define KERN_CROSS_STREAM 0x0004  // bit 2
+#define KERN_OVERRIDE     0x0008  // bit 3
+#define KERN_FORMAT       0xFF00  // bits 8–15
+
 SP_font* SP_load_font(char *filename){
     SP_font *font = calloc(1, sizeof(SP_font));
 
@@ -280,6 +286,7 @@ SP_font* SP_load_font(char *filename){
     int head_offset = 0;
     int hhea_offset = 0;
     int hmtx_offset = 0;
+    int kern_offset = 0;
 
     for (int i = 0; i < (int)number_of_tables; ++i){
         char tag[5]; get_tag(font, tag);
@@ -314,179 +321,237 @@ SP_font* SP_load_font(char *filename){
         else if (strcmp(tag, "hmtx") == 0){
             hmtx_offset = (int)offset;
         }
+
+        else if (strcmp(tag, "kern") == 0){
+            kern_offset = (int)offset;
+        }
     }
 
     // head table
-    font->current_byte = head_offset;
+    { 
+        font->current_byte = head_offset;
 
-    // skip nonsense
-    skip_32(font); // version
-    skip_32(font); // font revision
-    skip_32(font); // checksum adjustment
-    skip_32(font); // magic number
-    skip_16(font); // flags
+        // skip nonsense
+        skip_32(font); // version
+        skip_32(font); // font revision
+        skip_32(font); // checksum adjustment
+        skip_32(font); // magic number
+        skip_16(font); // flags
 
-    font->units_per_em = (float)get_u16(font);
-    
+        font->units_per_em = (float)get_u16(font);
+    }
+
     // skip gibberjabber
-    skip_32(font); // 64 bit longdatetime
-    skip_32(font);
-    skip_32(font); // 64 bit longdatetime
-    skip_32(font); 
-    skip_32(font); // mins
-    skip_32(font); // maxs
-    skip_16(font);
-    skip_16(font);
-    skip_16(font);
+    {
+        skip_32(font); // 64 bit longdatetime
+        skip_32(font);
+        skip_32(font); // 64 bit longdatetime
+        skip_32(font); 
+        skip_32(font); // mins
+        skip_32(font); // maxs
+        skip_16(font);
+        skip_16(font);
+        skip_16(font);
 
-    font->index_to_loca_format = get_i16(font);
+        font->index_to_loca_format = get_i16(font);    
+    }
 
     // get number of glyphs
-    font->current_byte = maxp_offset;
+    {
+        font->current_byte = maxp_offset;
 
-    skip_32(font);
+        skip_32(font);
 
-    font->number_of_glyphs = (int)get_u16(font);
+        font->number_of_glyphs = (int)get_u16(font);
+    }
+
+    // kerning data
+    {
+        font->current_byte = kern_offset;
+
+        uint16_t kerning_version = get_u16(font);
+        uint16_t number_of_kerning_tables = get_u16(font);
+        
+        for (int i = 0; i < number_of_kerning_tables; ++i){
+            uint16_t version = get_u16(font);
+            uint16_t length = get_u16(font); // length of subtable in bytes
+            uint16_t coverage = get_u16(font); // what info is in this table
+            
+            int is_horizontal = coverage & KERN_HORIZONTAL;
+            int is_minimum = coverage & KERN_MINIMUM; // dont know what a minimum is
+            int is_cross_stream = coverage & KERN_CROSS_STREAM; // dunno what this is
+            int is_override = coverage & KERN_OVERRIDE;
+            int format = (coverage & KERN_FORMAT) >> 8; // these are high bits so we have to shift them down
+            
+            // only searching format 0 for now. That's what windows uses so it's probably common
+            if (format == 0){
+                uint16_t number_of_pairs = get_u16(font);
+                uint16_t search_range = get_u16(font);
+                uint16_t entry_selector = get_u16(font);
+                uint16_t range_shift = get_u16(font);
+
+                font->number_of_kerning_pairs = number_of_pairs;
+                
+                font->kerning_pairs = calloc(number_of_pairs, sizeof(SP_kerning_pair*));
+
+                for (int j = 0; j < number_of_pairs; ++j){
+                    font->kerning_pairs[j] = (SP_kerning_pair){get_u16(font), get_u16(font), get_i16(font)};
+                }
+                
+                break;
+            }
+        }
+    }
 
     // glyph locations
-    font->current_byte = loca_offset;
+    {
+        font->current_byte = loca_offset;
 
-    font->glyph_offsets = malloc(sizeof(int) * (font->number_of_glyphs + 1));
+        font->glyph_offsets = malloc(sizeof(int) * (font->number_of_glyphs + 1));
 
-    for (int i = 0; i <= font->number_of_glyphs; ++i){
-        if (font->index_to_loca_format){ // long offsets (32 bit)
-            font->glyph_offsets[i] = (int)get_u32(font) + glyph_offset;
-        }else { // short offsets (16 bit)
-            font->glyph_offsets[i] = (int)get_u16(font) * 2 + glyph_offset;
+        for (int i = 0; i <= font->number_of_glyphs; ++i){
+            if (font->index_to_loca_format){ // long offsets (32 bit)
+                font->glyph_offsets[i] = (int)get_u32(font) + glyph_offset;
+            }else { // short offsets (16 bit)
+                font->glyph_offsets[i] = (int)get_u16(font) * 2 + glyph_offset;
+            }
         }
     }
 
     // character map
-    font->current_byte = cmap_offset;
+    {
+        font->current_byte = cmap_offset;
 
-    uint16_t version = get_u16(font);
+        uint16_t version = get_u16(font);
 
-    uint16_t number_of_cmap_tables = get_u16(font);
+        uint16_t number_of_cmap_tables = get_u16(font);
 
-    int last_byte_offset;
+        int last_byte_offset;
 
-    for (int i = 0; i < number_of_cmap_tables; ++i){
-        uint16_t platform_id = get_u16(font);
-        uint16_t encoding_id = get_u16(font);
-        uint32_t subtable_offset = get_u32(font);
+        for (int i = 0; i < number_of_cmap_tables; ++i){
+            uint16_t platform_id = get_u16(font);
+            uint16_t encoding_id = get_u16(font);
+            uint32_t subtable_offset = get_u32(font);
 
-        last_byte_offset = font->current_byte;
-        font->current_byte = cmap_offset + subtable_offset;
+            last_byte_offset = font->current_byte;
+            font->current_byte = cmap_offset + subtable_offset;
 
-        if (platform_id == 3 && encoding_id == 1){
-            // i'll add this when i have to use a font that needs it 
-        } else if (platform_id == 0 && encoding_id == 3){
-            // assuming only format 4 for now because im lazy >w<
+            if (platform_id == 3 && encoding_id == 1){
+                // i'll add this when i have to use a font that needs it 
+            } else if (platform_id == 0 && encoding_id == 3){
+                // assuming only format 4 for now because im lazy >w<
 
-            uint16_t format = get_u16(font);
-            uint16_t length = get_u16(font);
-            uint16_t language = get_u16(font);
-            uint16_t seg_count_x2 = get_u16(font); uint16_t seg_count = seg_count_x2 / 2;
-            skip_16(font);
-            skip_16(font);
-            skip_16(font);
-        
-            uint16_t *end_codes = malloc(sizeof(uint16_t) * seg_count);
-            for (int i = 0; i < seg_count; ++i) end_codes[i] = get_u16(font);
+                uint16_t format = get_u16(font);
+                uint16_t length = get_u16(font);
+                uint16_t language = get_u16(font);
+                uint16_t seg_count_x2 = get_u16(font); uint16_t seg_count = seg_count_x2 / 2;
+                skip_16(font);
+                skip_16(font);
+                skip_16(font);
             
-            skip_16(font);
-            
-            uint16_t *start_codes = malloc(sizeof(uint16_t) * seg_count);
-            for (int i = 0; i < seg_count; ++i) start_codes[i] = get_u16(font);
-            
-            int16_t *id_deltas = malloc(sizeof(uint16_t) * seg_count);
-            for (int i = 0; i < seg_count; ++i) id_deltas[i] = get_u16(font);
-            
-            int id_range_offsets_size = length - (font->current_byte - (cmap_offset + subtable_offset));
-            uint16_t *id_range_offsets = malloc(sizeof(uint16_t) * id_range_offsets_size);
-            for (int i = 0; i < id_range_offsets_size; ++i) id_range_offsets[i] = get_u16(font);
-            
-            int highest_code = end_codes[seg_count - 1];
+                uint16_t *end_codes = malloc(sizeof(uint16_t) * seg_count);
+                for (int i = 0; i < seg_count; ++i) end_codes[i] = get_u16(font);
+                
+                skip_16(font);
+                
+                uint16_t *start_codes = malloc(sizeof(uint16_t) * seg_count);
+                for (int i = 0; i < seg_count; ++i) start_codes[i] = get_u16(font);
+                
+                int16_t *id_deltas = malloc(sizeof(uint16_t) * seg_count);
+                for (int i = 0; i < seg_count; ++i) id_deltas[i] = get_u16(font);
+                
+                int id_range_offsets_size = length - (font->current_byte - (cmap_offset + subtable_offset));
+                uint16_t *id_range_offsets = malloc(sizeof(uint16_t) * id_range_offsets_size);
+                for (int i = 0; i < id_range_offsets_size; ++i) id_range_offsets[i] = get_u16(font);
+                
+                int highest_code = end_codes[seg_count - 1];
 
-            font->unicode_to_glyph_indicies = malloc(sizeof(uint16_t) * highest_code + 10);
+                font->unicode_to_glyph_indicies = malloc(sizeof(uint16_t) * highest_code + 10);
 
-            // loop over segments.
-            // a segment is a range of unicode characters that are all mapped with the same formula.
-            // i dont understand this at all
-            for (int i = 0; i < seg_count; i++) {
-                for (int j = start_codes[i]; j <= end_codes[i]; j++) {
-                    uint16_t glyph_index = 0;
-                    if (id_range_offsets[i] == 0) {
-                        glyph_index = (j + id_deltas[i]) & 0xFFFF;
-                    } else {
-                        // Compute address relative to this idRangeOffset word
-                        int offset = id_range_offsets[i]/2 + (j - start_codes[i]);
-                        int16_t *glyphIdArray = (int16_t *)(&id_range_offsets[i]);
-                        glyph_index = glyphIdArray[offset];
+                // loop over segments.
+                // a segment is a range of unicode characters that are all mapped with the same formula.
+                // i dont understand this at all
+                for (int i = 0; i < seg_count; i++) {
+                    for (int j = start_codes[i]; j <= end_codes[i]; j++) {
+                        uint16_t glyph_index = 0;
+                        if (id_range_offsets[i] == 0) {
+                            glyph_index = (j + id_deltas[i]) & 0xFFFF;
+                        } else {
+                            // Compute address relative to this idRangeOffset word
+                            int offset = id_range_offsets[i]/2 + (j - start_codes[i]);
+                            int16_t *glyphIdArray = (int16_t *)(&id_range_offsets[i]);
+                            glyph_index = glyphIdArray[offset];
 
-                        if (glyph_index != 0) {
-                            glyph_index = (glyph_index + id_deltas[i]) & 0xFFFF;
+                            if (glyph_index != 0) {
+                                glyph_index = (glyph_index + id_deltas[i]) & 0xFFFF;
+                            }
                         }
+                        font->unicode_to_glyph_indicies[j] = glyph_index;
                     }
-                    font->unicode_to_glyph_indicies[j] = glyph_index;
                 }
+
+                free(end_codes);
+                free(start_codes);
+                free(id_deltas);
+                free(id_range_offsets);
+
+                break; // stop because we only need one
+            } else { // excuse
+                // printf("cant read this becuase dont want to");
             }
 
-            free(end_codes);
-            free(start_codes);
-            free(id_deltas);
-            free(id_range_offsets);
-
-            break; // stop because we only need one
-        } else { // excuse
-            // printf("cant read this becuase dont want to");
+            font->current_byte = last_byte_offset;
         }
-
-        font->current_byte = last_byte_offset;
     }
 
     // hhea table
-    font->current_byte = hhea_offset;
-    
-    skip_32(font); // skip version
+    {
+        font->current_byte = hhea_offset;
+        
+        skip_32(font); // skip version
 
-    font->hhea_table.ascender = get_i16(font); // typographic ascent
-    font->hhea_table.descender = get_i16(font); // typographic descent
-    font->hhea_table.line_gap = get_i16(font); // typographic line gap
-    font->hhea_table.advance_max_width = get_u16(font); // max advance width for entry in hmtx table
-    font->hhea_table.min_left_side_bearing = get_i16(font); // "Minimum left sidebearing value in 'hmtx' table for glyphs with contours (empty glyphs should be ignored)."
-    font->hhea_table.min_right_side_bearing = get_i16(font); // "Minimum right sidebearing value; calculated as min(aw - (lsb + xMax - xMin)) for glyphs with contours (empty glyphs should be ignored)."
-    font->hhea_table.x_max_extent = get_i16(font); // "Max(lsb + (xMax - xMin))"
-    font->hhea_table.carat_slope_rise = get_i16(font); // used to calculate the slope of the cursor (1 for vertical)
-    font->hhea_table.carat_slope_run = get_i16(font); // 0 for vertical
-    font->hhea_table.carat_offset = get_i16(font); // "The amount by which a slanted highlight on a glyph needs to be shifted to produce the best appearance. Set to 0 for non-slanted fonts"
-    //                                       ^^^^too tired to make this simpler
-    skip_32(font); // skip reserved
-    skip_32(font); // (why is there reserved in the first place? for extra stuff later on? just add it to the end?)
-    font->hhea_table.metric_data_format = get_i16(font); // "0 for current format" (?)
-    font->hhea_table.number_of_h_metrics = get_u16(font); // h_metric entry count in hmtx table
+        font->hhea_table.ascender = get_i16(font); // typographic ascent
+        font->hhea_table.descender = get_i16(font); // typographic descent
+        font->hhea_table.line_gap = get_i16(font); // typographic line gap
+        font->hhea_table.advance_max_width = get_u16(font); // max advance width for entry in hmtx table
+        font->hhea_table.min_left_side_bearing = get_i16(font); // "Minimum left sidebearing value in 'hmtx' table for glyphs with contours (empty glyphs should be ignored)."
+        font->hhea_table.min_right_side_bearing = get_i16(font); // "Minimum right sidebearing value; calculated as min(aw - (lsb + xMax - xMin)) for glyphs with contours (empty glyphs should be ignored)."
+        font->hhea_table.x_max_extent = get_i16(font); // "Max(lsb + (xMax - xMin))"
+        font->hhea_table.carat_slope_rise = get_i16(font); // used to calculate the slope of the cursor (1 for vertical)
+        font->hhea_table.carat_slope_run = get_i16(font); // 0 for vertical
+        font->hhea_table.carat_offset = get_i16(font); // "The amount by which a slanted highlight on a glyph needs to be shifted to produce the best appearance. Set to 0 for non-slanted fonts"
+        //                                       ^^^^too tired to make this simpler
+        skip_32(font); // skip reserved
+        skip_32(font); // (why is there reserved in the first place? for extra stuff later on? just add it to the end?)
+        font->hhea_table.metric_data_format = get_i16(font); // "0 for current format" (?)
+        font->hhea_table.number_of_h_metrics = get_u16(font); // h_metric entry count in hmtx table
+    }
 
     // hmtx table
-    font->current_byte = hmtx_offset;
+    {
+        font->current_byte = hmtx_offset;
 
-    font->h_metrics = malloc(sizeof(SP_long_hor_metric) * font->number_of_glyphs); // advance width and left side bearings for each glyph
-    // font->left_side_bearings = malloc(sizeof(int16_t) * font->number_of_glyphs); // left side bearings for glyphs with IDs >= number_of_h_metrics
-    // ^^^^^^^^^^^^^^^^^^^ this is useful for monospaced fonts where most everything has the same left side bearing. it saves on memory
-    // ^^^^^^^^^^^^^^^^^^^ when number_of_h_metrics is < number of glyphs, the last advance width applies to all
-    // ^^^^^^^^^^^^^^^^^^^ to make this easier on the user -- and because memory really isn't a problem anymore -- I'll only use h_metrics and make it the size of number of glyphs
+        font->h_metrics = malloc(sizeof(SP_long_hor_metric) * font->number_of_glyphs); // advance width and left side bearings for each glyph
+        // font->left_side_bearings = malloc(sizeof(int16_t) * font->number_of_glyphs); // left side bearings for glyphs with IDs >= number_of_h_metrics
+        // ^^^^^^^^^^^^^^^^^^^ this is useful for monospaced fonts where most everything has the same left side bearing. it saves on memory
+        // ^^^^^^^^^^^^^^^^^^^ when number_of_h_metrics is < number of glyphs, the last advance width applies to all
+        // ^^^^^^^^^^^^^^^^^^^ to make this easier on the user -- and because memory really isn't a problem anymore -- I'll only use h_metrics and make it the size of number of glyphs
 
-    for (int i = 0; i < font->number_of_glyphs; ++i){
-        if (i < font->hhea_table.number_of_h_metrics) font->h_metrics[i] = (SP_long_hor_metric){get_u16(font), get_i16(font)}; 
-        else font->h_metrics[i] = (SP_long_hor_metric){font->h_metrics[font->hhea_table.number_of_h_metrics - 1].advance_width, get_i16(font)}; 
+        for (int i = 0; i < font->number_of_glyphs; ++i){
+            if (i < font->hhea_table.number_of_h_metrics) font->h_metrics[i] = (SP_long_hor_metric){get_u16(font), get_i16(font)}; 
+            else font->h_metrics[i] = (SP_long_hor_metric){font->h_metrics[font->hhea_table.number_of_h_metrics - 1].advance_width, get_i16(font)}; 
+        }
     }
 
     // read glyphs
-    font->current_byte = glyph_offset;
+    {
+        font->current_byte = glyph_offset;
 
-    font->glyphs = malloc(sizeof(SP_glyph) * font->number_of_glyphs);
+        font->glyphs = malloc(sizeof(SP_glyph) * font->number_of_glyphs);
 
-    for (int i = 0; i < font->number_of_glyphs; ++i){
-        read_glyph(font, i);
+        for (int i = 0; i < font->number_of_glyphs; ++i){
+            read_glyph(font, i);
+        }
     }
 
     return font;
@@ -511,6 +576,8 @@ void SP_free_font(SP_font *font){
     free(font->unicode_to_glyph_indicies);
     free(font->left_side_bearings);
     free(font->h_metrics);
+
+    free(font->kerning_pairs);
 
     free(font);
 }

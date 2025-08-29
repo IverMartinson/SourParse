@@ -4,6 +4,11 @@
 #include "stdint.h"
 
 typedef struct {
+    uint16_t left, right;
+    int16_t value; // kerning value for the above pair. If it's more than 0, the cahracters will be moved apart. If it's less than 0, the characters will be moved closer
+} SP_kerning_pair;
+
+typedef struct {
     int16_t ascender;
     int16_t descender;
     int16_t line_gap;
@@ -40,7 +45,7 @@ typedef struct {
 } SP_glyph;
 
 typedef struct {
-    int current_byte, number_of_glyphs, *glyph_offsets; 
+    int current_byte, number_of_glyphs, number_of_kerning_pairs, *glyph_offsets; 
     uint16_t *unicode_to_glyph_indicies;
     float units_per_em;
     uint8_t *buffer;
@@ -49,6 +54,7 @@ typedef struct {
     SP_long_hor_metric *h_metrics;
     SP_hhea_table hhea_table;
     int16_t *left_side_bearings;
+    SP_kerning_pair *kerning_pairs; 
 } SP_font;
 
 SP_font* SP_load_font(char *filename);
