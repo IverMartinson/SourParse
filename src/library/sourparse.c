@@ -109,6 +109,8 @@ void read_glyph(SP_font *font, int current_glyph){
     
     SP_glyph *glyph = &font->glyphs[current_glyph];
     
+    glyph->components = NULL;
+
     if (glyph_start == glyph_end){
         glyph->number_of_contours = 0;
         
@@ -568,7 +570,7 @@ void SP_free_font(SP_font *font){
             free(font->glyphs[i].x_coords);
             free(font->glyphs[i].y_coords);
         } else {
-            free(font->glyphs[i].components);
+            if (font->glyphs[i].components) free(font->glyphs[i].components);
         }    
     }
     
