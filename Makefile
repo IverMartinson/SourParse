@@ -1,7 +1,7 @@
 COMPILER=gcc
-FLAGS_ALL=-fsanitize=address -g -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-sequence-point
+FLAGS_ALL=-Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-sequence-point
 FLAGS_EXAMPLE=-Lbuild/ -lsourparse -Wl,-rpath=build/
-FLAGS_LIB=-lc -shared -fPIC
+FLAGS_LIB=-shared -fPIC
 
 main.bin: sourparse.so
 	$(COMPILER) $(FLAGS_ALL) src/launch_program/main.c -o build/main.bin $(FLAGS_EXAMPLE) 
