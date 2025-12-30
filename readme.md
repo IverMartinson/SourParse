@@ -1,7 +1,11 @@
-
 # SourParse
 
 World's Best TTF Parser, 2025
+
+## Etymology
+
+SourParse -> Sour & Parse
+Sour, like a lemon, & Parse, the action of converting a file to usable data
 
 ### Todo List
 
