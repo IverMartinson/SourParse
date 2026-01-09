@@ -1,5 +1,5 @@
 COMPILER=gcc
-FLAGS_ALL=-Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-sequence-point
+FLAGS_ALL=-g -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-sequence-point
 FLAGS_EXAMPLE=-Lbuild/ -lsourparse -Wl,-rpath=build/
 FLAGS_LIB=-shared -fPIC
 
